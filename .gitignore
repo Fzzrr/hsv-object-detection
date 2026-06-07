@@ -1,13 +1,1 @@
-# Gambar
-*.jpg
-*.jpeg
-*.png
-*.gif
-*.webp
-
-# File zip & lainnya
-*.zip
-*.ows
-
-# Folder gambar (kalau ada)
-Gambar PACD/
+__pycache__/
