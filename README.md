@@ -21,13 +21,43 @@ contoh `image.png` berupa **siluet fotografer** di depan langit.
 
 - Python 3.8+
 - Dependensi (lihat `requirements.txt`):
-  - `opencv-python`
+  - `opencv-python-headless`
   - `numpy`
   - `matplotlib`
+  - `streamlit` (untuk versi web)
 
 ---
 
-## 🚀 Cara Menjalankan
+## 🌐 Versi Web (Streamlit) — tanpa instalasi
+
+Ada antarmuka web (`app.py`) sehingga **cukup membuka URL di browser**, tanpa
+meng-clone project atau memasang apa pun. Cocok untuk dosen/penguji.
+
+**Coba langsung:** _<tempel URL Streamlit Cloud kamu di sini setelah deploy>_
+
+### Menjalankan versi web secara lokal
+
+```bash
+pip install -r requirements.txt
+streamlit run app.py
+```
+
+### Deploy gratis ke Streamlit Community Cloud
+
+1. Pastikan repo (berisi `app.py`, `main.py`, `requirements.txt`, `image.png`)
+   sudah ada di GitHub.
+2. Buka <https://share.streamlit.io> → login dengan GitHub.
+3. **New app** → pilih repo `Fzzrr/hsv-object-detection`, branch `main`,
+   _Main file path_ = `app.py` → **Deploy**.
+4. Tunggu build selesai, lalu bagikan URL yang muncul ke dosen.
+
+> Di web: unggah gambar (atau pakai contoh `image.png`), pilih mode **Warna
+> dominan** atau **Siluet / objek gelap**, atur parameter, lihat 5 panel hasil,
+> dan unduh tiap hasil.
+
+---
+
+## 🚀 Menjalankan via CLI
 
 ```bash
 # 1. (opsional) buat & aktifkan virtual environment
