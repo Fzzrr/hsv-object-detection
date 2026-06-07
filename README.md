@@ -1,176 +1,107 @@
-# HSV Object Manipulation
+# 🎨 Deteksi Objek Berdasarkan Warna di Ruang HSV
 
-Mendeteksi dan memanipulasi objek **berdasarkan warnanya di ruang warna HSV**
-menggunakan OpenCV. Program **otomatis mendeteksi warna dominan** pada gambar
-(bukan hanya ikan oranye seperti contoh recipe), lalu:
+Aplikasi web **Streamlit** untuk mendeteksi dan memanipulasi objek pada gambar
+berdasarkan **warna**, menggunakan ruang warna **HSV** dengan OpenCV.
 
-1. **mengiris** (slice) objek dari latar,
-2. **mengubah warnanya** (menggeser channel Hue),
-3. **membuatnya transparan/hilang** — menukar area objek dengan citra latar
-   bila tersedia, atau menghapusnya dengan *inpainting* bila tidak.
+Aplikasi ini menerapkan resep klasik _"Object detection using color in HSV"_:
+gambar dikonversi ke HSV, lalu `cv2.inRange()` membuat **mask** biner untuk
+memisahkan objek berwarna tertentu dari latarnya. Dari mask itu objek bisa
+diekstrak, diubah warnanya, dibuat transparan, atau "disembunyikan" (_cloaking_).
 
-Selain objek berwarna, program juga mendukung **objek gelap/siluet** (mode
-`dark`) yang dideteksi lewat kecerahan (Value) rendah. Project ini menyertakan
-contoh `image.png` berupa **siluet fotografer** di depan langit.
-
-> Mata Kuliah: Pengolahan Analisis Citra Digital (PACD)
+> Dibuat untuk mata kuliah **Pengolahan Citra Digital (PACD)**.
 
 ---
 
-## 📦 Persyaratan
+## ✨ Fitur
 
-- Python 3.8+
-- Dependensi (lihat `requirements.txt`):
-  - `opencv-python-headless`
-  - `numpy`
-  - `matplotlib`
-  - `streamlit` (untuk versi web)
+- **Upload gambar apa saja** (JPG, JPEG, PNG, WEBP, BMP).
+- **Dua cara memilih warna target:**
+  1. **Color Picker** — klik warna, rentang HSV dihitung otomatis lengkap dengan
+     slider toleransi (Hue / Saturation / Value).
+  2. **Slider HSV manual** — atur sendiri batas bawah & atas (`lower`/`upper`),
+     persis seperti parameter `cv2.inRange`.
+- **5+ hasil sekaligus**, masing-masing bisa diunduh sebagai PNG:
+  - 🖼️ **Original** — gambar asli.
+  - ⚫ **Mask** — peta biner area yang terdeteksi.
+  - ✂️ **Objek Saja** — hanya objek hasil _slicing_ mask.
+  - 🌈 **Warna Objek Diubah** — geser **Hue** atau ganti ke warna pilihan
+    (opsi mempertahankan gelap/terang asli objek).
+  - 👻 **Objek Transparan** — area objek dijadikan transparan (PNG dengan alpha).
+  - 🫥 **Cloaking** — objek "menghilang" diganti gambar latar pilihan.
+- **Statistik cepat:** persentase area gambar yang terdeteksi.
+- **Tips bawaan** untuk menyempurnakan hasil deteksi.
 
 ---
 
-## 🌐 Versi Web (Streamlit) — tanpa instalasi
+## 🚀 Cara Menjalankan
 
-Ada antarmuka web (`app.py`) sehingga **cukup membuka URL di browser**, tanpa
-meng-clone project atau memasang apa pun. Cocok untuk dosen/penguji.
-
-**Coba langsung:** _<tempel URL Streamlit Cloud kamu di sini setelah deploy>_
-
-### Menjalankan versi web secara lokal
+### 1. Instal dependensi
 
 ```bash
 pip install -r requirements.txt
+```
+
+Atau secara manual:
+
+```bash
+pip install streamlit opencv-python-headless numpy pillow
+```
+
+### 2. Jalankan aplikasi
+
+```bash
 streamlit run app.py
 ```
 
-### Deploy gratis ke Streamlit Community Cloud
-
-1. Pastikan repo (berisi `app.py`, `main.py`, `requirements.txt`, `image.png`)
-   sudah ada di GitHub.
-2. Buka <https://share.streamlit.io> → login dengan GitHub.
-3. **New app** → pilih repo `Fzzrr/hsv-object-detection`, branch `main`,
-   _Main file path_ = `app.py` → **Deploy**.
-4. Tunggu build selesai, lalu bagikan URL yang muncul ke dosen.
-
-> Di web: unggah gambar (atau pakai contoh `image.png`), pilih mode **Warna
-> dominan** atau **Siluet / objek gelap**, atur parameter, lihat 5 panel hasil,
-> dan unduh tiap hasil.
+Browser akan terbuka otomatis (biasanya di `http://localhost:8501`).
 
 ---
 
-## 🚀 Menjalankan via CLI
+## 🧠 Cara Kerja
 
-```bash
-# 1. (opsional) buat & aktifkan virtual environment
-python -m venv venv
-venv\Scripts\activate        # Windows
-# source venv/bin/activate   # Linux / macOS
+1. **Konversi RGB → HSV.** HSV memisahkan _warna_ (Hue) dari _kecerahan_ (Value),
+   sehingga deteksi warna jauh lebih stabil dibanding di ruang RGB.
+2. **`cv2.inRange(hsv, lower, upper)`** membuat **mask** biner: piksel di dalam
+   rentang warna menjadi putih (255), sisanya hitam (0).
+3. **Slicing dengan mask** untuk mengambil hanya piksel objek.
+4. **Ubah warna** cukup dengan menggeser channel **Hue** (tanpa menyentuh
+   Saturation/Value), lalu konversi balik ke RGB.
+5. **Transparansi / cloaking** dengan mengganti area objek (alpha = 0 atau
+   ditimpa gambar latar).
 
-# 2. install dependensi
-pip install -r requirements.txt
-
-# 3. jalankan pada contoh bawaan (image.png = siluet -> pakai mode dark)
-python main.py --image image.png --target dark --dark-thresh 35 --save
-
-#    atau pada gambar berwarna milikmu sendiri (mode color default)
-python main.py --image foto.jpg
-```
-
-Program akan mencetak info objek terdeteksi (warna dominan, atau jumlah piksel
-siluet pada mode `dark`), lalu menampilkan jendela **matplotlib** berisi 5 panel:
-input, mask, objek diiris, objek di-recolor, dan objek transparan. Tambahkan
-`--save` untuk menyimpan tiap panel ke folder `out/`.
-
-### Opsi argumen
-
-| Argumen         | Default        | Fungsi                                                       |
-| --------------- | -------------- | ------------------------------------------------------------ |
-| `--image`       | `image.png`    | berkas citra input                                           |
-| `--target`      | `color`        | `color` = deteksi warna dominan, `dark` = siluet/objek gelap |
-| `--dark-thresh` | `50`           | (mode dark) ambang Value; piksel `V<nilai` dianggap objek    |
-| `--fill`        | `255,130,0`    | (mode dark) warna isi `B,G,R` saat recolor (default biru)    |
-| `--bg`          | *(tidak ada)*  | citra latar untuk efek transparan ala recipe asli            |
-| `--hue-shift`   | `20`           | (mode color) besar pergeseran Hue saat me-recolor objek      |
-| `--save`        | *(off)*        | simpan tiap panel hasil ke folder `out/`                     |
-
-### Dua mode target
-
-- **`color`** (default) — untuk objek berwarna. Program memilih warna dominan,
-  lalu me-recolor dengan menggeser Hue. Cocok mis. kemeja merah, ikan oranye.
-- **`dark`** — untuk objek **gelap/siluet** yang tidak punya warna (mis. siluet
-  orang membelakangi cahaya). Dideteksi via Value rendah, dan di-recolor dengan
-  **mengisi warna solid** (geser Hue tidak terlihat pada piksel hitam).
-
-### Contoh
-
-```bash
-# deteksi warna dominan otomatis, transparan via inpaint
-python main.py --image images/foto.jpg
-
-# kasus ikan oranye + foto latar (persis cara recipe asli)
-python main.py --image images/fish.png --bg images/fish_bg.png
-
-# objek siluet/gelap (mis. fotografer membelakangi langit -> image.png)
-python main.py --image image.png --target dark --dark-thresh 35
-
-# siluet diisi warna merah, ambang lebih ketat, simpan hasil
-python main.py --image image.png --target dark --fill 0,0,255 --dark-thresh 35 --save
-```
+> Catatan format OpenCV: **H ∈ [0, 179]**, **S ∈ [0, 255]**, **V ∈ [0, 255]**.
 
 ---
 
-## 🖼️ Menyiapkan Gambar
+## 📦 Dependensi
 
-Project sudah menyertakan `image.png` (siluet fotografer) di folder root, jadi
-bisa langsung dijalankan. Untuk gambarmu sendiri, cukup arahkan `--image` ke
-berkasnya:
-
-```
-image.png         # contoh bawaan (siluet) -> jalankan dengan --target dark
-```
-
-Untuk efek transparan ala recipe asli (mode `--bg`), sediakan **dua foto
-berukuran sama**: satu dengan objek dan satu hanya latar tanpa objek, lalu:
-
-```bash
-python main.py --image objek.png --bg latar.png
-```
+| Paket                     | Fungsi                                  |
+| ------------------------- | --------------------------------------- |
+| `streamlit`               | Antarmuka web interaktif                |
+| `opencv-python-headless`  | Pemrosesan citra & konversi ruang warna |
+| `numpy`                   | Operasi array piksel                    |
+| `pillow`                  | Baca/tulis gambar & ekspor PNG          |
 
 ---
 
-## ⚙️ Cara Kerja
+## 💡 Tips Deteksi
 
-Pipeline pada `main.py` (mengembangkan recipe HSV):
-
-1. **BGR → HSV** — konversi citra input ke ruang warna HSV.
-2. **Deteksi warna dominan** (`detect_color`) — hitung luas mask untuk tiap
-   warna di `COLOR_RANGES`, pilih yang terbesar. Merah memakai 2 range karena
-   melingkar di spektrum Hue.
-3. **Masking** (`build_mask`) + **pembersihan** (`clean_mask`, morfologi
-   *opening* lalu *closing*) untuk merapikan mask.
-4. **Slice** (`slice_object`) — ambil piksel objek saja memakai mask.
-5. **Recolor** (`recolor_object`) — geser channel Hue (mod 180) lalu konversi
-   kembali ke BGR.
-6. **Transparan** (`remove_object`) — tukar latar bila `--bg` ada, selain itu
-   `cv2.inpaint` untuk menghapus objek.
-
-Rentang warna diatur di `COLOR_RANGES` (dalam `main.py`): Merah, Oranye,
-Kuning, Hijau, Cyan, Biru, Ungu. Tambahkan entri baru di sana bila perlu.
-
-Pada **mode `dark`**, langkah 2 (deteksi warna) diganti dengan `build_dark_mask`
-yang menandai piksel ber-Value rendah (`V < --dark-thresh`), dan langkah 5
-(recolor) diganti `fill_object` yang menimpa objek dengan warna solid `--fill`
-(menggeser Hue tidak terlihat pada piksel hitam).
+- **Objek tidak tertangkap penuh?** Perbesar toleransi _Saturation_ & _Value_,
+  atau lebarkan rentang _Hue_.
+- **Terlalu banyak area ikut tertangkap?** Persempit toleransi, terutama _Hue_.
+- **Warna merah** berada di dua ujung lingkaran Hue (dekat 0 dan 179). Gunakan
+  mode slider manual (coba dua rentang) atau pilih merah yang condong
+  oranye/magenta lewat color picker.
+- Mode **Color Picker** menghitung rentang otomatis di sekitar warna pilihan —
+  paling mudah untuk eksplorasi cepat.
 
 ---
 
-## 🛠️ Tips & Troubleshooting
+## 📁 Struktur Proyek
 
-- **Warna terdeteksi salah** → objek dominan mungkin bukan yang kamu maksud;
-  sesuaikan rentang di `COLOR_RANGES` atau crop gambar lebih dulu.
-- **Objek siluet/gelap tidak terdeteksi (mode `color`)** → siluet tidak punya
-  hue; gunakan `--target dark`. Atur `--dark-thresh` (naikkan bila bagian objek
-  terlewat, turunkan bila bintik latar ikut tertangkap).
-- **Mask kurang rapi** → ubah ukuran kernel/iterasi di `clean_mask`.
-- **Hasil transparan belang (mode `--bg`)** → pastikan `--bg` diambil dari
-  sudut & ukuran yang sama, hanya beda ada/tidaknya objek.
-- **Pencahayaan** sangat memengaruhi nilai S/V; uji di kondisi cahaya serupa.
+```
+hsv-object-detection/
+├── app.py            # Aplikasi Streamlit (seluruh logika & UI)
+├── requirements.txt  # Daftar dependensi
+└── README.md
+```

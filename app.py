@@ -1,211 +1,298 @@
 """
-Aplikasi Web (Streamlit) - Deteksi & Manipulasi Objek berbasis Warna HSV
-========================================================================
-Mata Kuliah : Pengolahan Analisis Citra Digital (PACD)
+Object Detection using Color in HSV — Streamlit App
+====================================================
+Berdasarkan resep "Object detection using color in HSV" (OpenCV-Python).
 
-Antarmuka web untuk recipe HSV pada `main.py`. Dosen/penguji cukup membuka
-URL aplikasi (mis. di Streamlit Community Cloud) tanpa perlu meng-clone project
-atau memasang dependensi secara lokal.
+Fitur:
+- Upload gambar apa saja (jpg/png/webp/bmp).
+- Pilih warna yang ingin dideteksi secara BEBAS, lewat 2 cara:
+    1. Color Picker (klik warna -> rentang HSV dihitung otomatis + toleransi)
+    2. Slider HSV manual (lower & upper bound, seperti cv2.inRange)
+- Lihat hasil: Original, Mask, Objek Saja, Ubah Warna Objek, Objek Transparan.
+- Ubah warna objek dengan: geser Hue ATAU ganti ke warna pilihan sendiri.
+- Unduh tiap hasil sebagai PNG.
 
-Logika inti TIDAK diduplikasi - app ini meng-import fungsi langsung dari
-`main.py` (build_mask, detect_color, slice_object, recolor_object, dll).
-
-Menjalankan secara lokal:
+Cara menjalankan:
+    pip install streamlit opencv-python-headless numpy pillow
     streamlit run app.py
 """
 
-import os
+import io
 
 import cv2
 import numpy as np
 import streamlit as st
+from PIL import Image
 
-# Pakai ulang seluruh logika pemrosesan dari main.py (single source of truth)
-import main as core
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Util tampilan
-# ─────────────────────────────────────────────────────────────────────────────
-def to_rgb(img):
-    """BGR/abu-abu -> RGB untuk st.image (Matplotlib/Streamlit pakai RGB)."""
-    if img.ndim == 2:
-        return cv2.cvtColor(img, cv2.COLOR_GRAY2RGB)
-    return cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-
-
-def png_bytes(img):
-    """Encode citra BGR/abu-abu menjadi byte PNG untuk tombol download."""
-    ok, buf = cv2.imencode(".png", img)
-    return buf.tobytes() if ok else b""
-
-
-def read_upload(uploaded):
-    """Baca file yang di-upload Streamlit menjadi citra BGR (OpenCV)."""
-    data = np.frombuffer(uploaded.getvalue(), np.uint8)
-    return cv2.imdecode(data, cv2.IMREAD_COLOR)
-
-
-def hex_to_bgr(hex_color):
-    """'#rrggbb' -> tuple BGR untuk OpenCV."""
-    h = hex_color.lstrip("#")
-    r, g, b = (int(h[i:i + 2], 16) for i in (0, 2, 4))
-    return (b, g, r)
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Halaman
-# ─────────────────────────────────────────────────────────────────────────────
-st.set_page_config(page_title="Deteksi Objek HSV", page_icon="🎨", layout="wide")
-
-st.title("🎨 Deteksi & Manipulasi Objek berbasis Warna HSV")
-st.caption(
-    "Pengolahan Analisis Citra Digital (PACD) — deteksi objek di ruang warna "
-    "HSV, lalu iris, ubah warna, dan buat transparan. Mendukung objek berwarna "
-    "maupun siluet/objek gelap."
+# ----------------------------------------------------------------------------
+# Konfigurasi halaman
+# ----------------------------------------------------------------------------
+st.set_page_config(
+    page_title="Deteksi Objek Berdasarkan Warna (HSV)",
+    page_icon="🎨",
+    layout="wide",
 )
 
-# ── Sidebar: input & parameter ───────────────────────────────────────────────
-with st.sidebar:
-    st.header("⚙️ Pengaturan")
+st.title("🎨 Deteksi Objek Berdasarkan Warna di Ruang HSV")
+st.caption(
+    "Upload gambar apa saja, pilih warna yang ingin dideteksi, lalu ekstrak, "
+    "ubah warnanya, atau buat objek menjadi transparan — semua di ruang warna HSV."
+)
 
-    uploaded = st.file_uploader(
-        "Unggah gambar", type=["png", "jpg", "jpeg", "bmp", "webp"]
+
+# ----------------------------------------------------------------------------
+# Fungsi bantu
+# ----------------------------------------------------------------------------
+def load_image(uploaded_file) -> np.ndarray:
+    """Baca file yang diupload menjadi array RGB (uint8)."""
+    image = Image.open(uploaded_file).convert("RGB")
+    return np.array(image)  # RGB, HxWx3
+
+
+def hex_to_rgb(hex_color: str) -> tuple:
+    """'#rrggbb' -> (r, g, b)."""
+    hex_color = hex_color.lstrip("#")
+    return tuple(int(hex_color[i : i + 2], 16) for i in (0, 2, 4))
+
+
+def rgb_to_hsv_single(rgb: tuple) -> np.ndarray:
+    """Konversi 1 warna RGB ke HSV (skala OpenCV: H 0-179, S/V 0-255)."""
+    px = np.uint8([[list(rgb)]])  # 1x1x3
+    hsv = cv2.cvtColor(px, cv2.COLOR_RGB2HSV)
+    return hsv[0, 0]  # [H, S, V]
+
+
+def build_range_from_color(rgb, h_tol, s_tol, v_tol):
+    """Bangun lower & upper HSV dari sebuah warna + toleransi (mirip resep)."""
+    h, s, v = [int(x) for x in rgb_to_hsv_single(rgb)]
+    lower = np.array(
+        [max(h - h_tol, 0), max(s - s_tol, 0), max(v - v_tol, 0)], dtype=np.uint8
     )
-    use_example = st.checkbox(
-        "Pakai contoh bawaan (image.png)", value=uploaded is None
+    upper = np.array(
+        [min(h + h_tol, 179), min(s + s_tol, 255), min(v + v_tol, 255)],
+        dtype=np.uint8,
     )
+    return lower, upper
 
-    st.divider()
 
-    mode_label = st.radio(
-        "Mode target objek",
-        ["Warna dominan", "Siluet / objek gelap"],
-        help="'Warna dominan' mendeteksi via Hue (objek berwarna). "
-             "'Siluet' mendeteksi via kecerahan rendah (objek hitam/backlit).",
-    )
-    is_dark = mode_label.startswith("Siluet")
+def make_mask(rgb_img, lower, upper):
+    """cv2.inRange di ruang HSV -> mask biner."""
+    hsv = cv2.cvtColor(rgb_img, cv2.COLOR_RGB2HSV)
+    mask = cv2.inRange(hsv, lower, upper)
+    return mask  # 0 atau 255
 
-    if is_dark:
-        dark_thresh = st.slider(
-            "Ambang gelap (V <)", 10, 120, 35,
-            help="Piksel dengan Value di bawah nilai ini dianggap objek. "
-                 "Naikkan bila bagian objek terlewat; turunkan bila bintik "
-                 "latar ikut tertangkap.",
-        )
-        fill_hex = st.color_picker(
-            "Warna isi siluet (recolor)", "#0082FF",
-            help="Untuk objek hitam, recolor dilakukan dengan mengisi warna "
-                 "solid (menggeser Hue tak terlihat pada piksel gelap).",
-        )
+
+def slice_object(rgb_img, mask):
+    """Ambil hanya objek (langkah 'Slice using the mask' di resep)."""
+    imask = mask > 0
+    obj = np.zeros_like(rgb_img, np.uint8)
+    obj[imask] = rgb_img[imask]
+    return obj
+
+
+def shift_hue(rgb_img, mask, hue_delta):
+    """Ubah warna objek dengan menggeser channel Hue saja (seperti resep)."""
+    imask = mask > 0
+    hsv = cv2.cvtColor(rgb_img, cv2.COLOR_RGB2HSV).astype(np.int16)
+    hsv[..., 0] = (hsv[..., 0] + hue_delta) % 180  # wrap di 0-179
+    hsv = hsv.astype(np.uint8)
+    recolored = cv2.cvtColor(hsv, cv2.COLOR_HSV2RGB)
+    out = rgb_img.copy()
+    out[imask] = recolored[imask]
+    return out
+
+
+def replace_color(rgb_img, mask, target_rgb, keep_shading=True):
+    """Ganti warna objek ke warna pilihan user."""
+    imask = mask > 0
+    out = rgb_img.copy()
+    if keep_shading:
+        # Pertahankan gelap-terang objek: pakai Hue & Sat target, tapi Value asli.
+        hsv = cv2.cvtColor(rgb_img, cv2.COLOR_RGB2HSV)
+        t_h, t_s, _ = rgb_to_hsv_single(target_rgb)
+        new_hsv = hsv.copy()
+        new_hsv[..., 0] = t_h
+        new_hsv[..., 1] = t_s
+        recolored = cv2.cvtColor(new_hsv, cv2.COLOR_HSV2RGB)
+        out[imask] = recolored[imask]
     else:
-        hue_shift = st.slider(
-            "Pergeseran Hue (recolor)", 0, 179, core.HUE_SHIFT,
-            help="Besar pergeseran channel Hue saat mengubah warna objek.",
-        )
+        out[imask] = np.array(target_rgb, dtype=np.uint8)
+    return out
+
+
+def make_transparent(rgb_img, mask):
+    """Jadikan objek transparan -> RGBA (alpha=0 pada area objek)."""
+    imask = mask > 0
+    rgba = np.dstack([rgb_img, np.full(rgb_img.shape[:2], 255, np.uint8)])
+    rgba[imask, 3] = 0  # objek menjadi transparan
+    return rgba
+
+
+def cloak_with_background(rgb_img, mask, bg_img):
+    """Versi 'cloaking' seperti di buku: ganti objek dengan latar pilihan."""
+    bg = cv2.resize(bg_img, (rgb_img.shape[1], rgb_img.shape[0]))
+    imask = mask > 0
+    out = rgb_img.copy()
+    out[imask] = bg[imask]
+    return out
+
+
+def to_png_bytes(arr: np.ndarray) -> bytes:
+    """Array (RGB/RGBA/gray) -> bytes PNG untuk tombol unduh."""
+    if arr.ndim == 2:
+        img = Image.fromarray(arr, mode="L")
+    elif arr.shape[2] == 4:
+        img = Image.fromarray(arr, mode="RGBA")
+    else:
+        img = Image.fromarray(arr, mode="RGB")
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
+    return buf.getvalue()
+
+
+def download_button(label, arr, filename):
+    st.download_button(label, data=to_png_bytes(arr), file_name=filename, mime="image/png")
+
+
+# ----------------------------------------------------------------------------
+# Sidebar — input & kontrol
+# ----------------------------------------------------------------------------
+with st.sidebar:
+    st.header("1. Upload Gambar")
+    uploaded = st.file_uploader(
+        "Pilih gambar", type=["jpg", "jpeg", "png", "webp", "bmp"]
+    )
 
     st.divider()
-    st.subheader("Efek transparan")
-    bg_upload = st.file_uploader(
-        "Citra latar (opsional, mode --bg)",
-        type=["png", "jpg", "jpeg", "bmp", "webp"],
-        help="Bila diisi, area objek ditukar dengan latar ini (cara recipe "
-             "asli). Bila kosong, objek dihapus dengan inpainting.",
+    st.header("2. Pilih Warna Target")
+    mode = st.radio(
+        "Cara memilih warna yang dideteksi:",
+        ["Color Picker (otomatis)", "Slider HSV manual"],
     )
 
-# ── Ambil citra input ────────────────────────────────────────────────────────
-img = None
-if uploaded is not None:
-    img = read_upload(uploaded)
-elif use_example and os.path.exists("image.png"):
-    img = cv2.imread("image.png")
+    if mode == "Color Picker (otomatis)":
+        target_hex = st.color_picker("Warna yang ingin dideteksi", "#FF7A00")
+        target_rgb = hex_to_rgb(target_hex)
+        st.caption("Atur toleransi seberapa lebar rentang warna di sekitar pilihanmu:")
+        h_tol = st.slider("Toleransi Hue (warna)", 1, 90, 15)
+        s_tol = st.slider("Toleransi Saturation", 10, 255, 100)
+        v_tol = st.slider("Toleransi Value (kecerahan)", 10, 255, 120)
+        lower, upper = build_range_from_color(target_rgb, h_tol, s_tol, v_tol)
+        st.info(f"Rentang HSV: lower={lower.tolist()}  upper={upper.tolist()}")
+    else:
+        st.caption("Format OpenCV: H 0–179, S 0–255, V 0–255.")
+        h_lo, h_hi = st.slider("Hue (H)", 0, 179, (5, 25))
+        s_lo, s_hi = st.slider("Saturation (S)", 0, 255, (75, 255))
+        v_lo, v_hi = st.slider("Value (V)", 0, 255, (25, 255))
+        lower = np.array([h_lo, s_lo, v_lo], dtype=np.uint8)
+        upper = np.array([h_hi, s_hi, v_hi], dtype=np.uint8)
 
-if img is None:
-    st.info(
-        "⬅️ Unggah gambar di panel kiri, atau centang **Pakai contoh bawaan** "
-        "untuk memakai `image.png`."
+    st.divider()
+    st.header("3. Ubah Warna Objek")
+    recolor_mode = st.radio(
+        "Metode pewarnaan ulang:",
+        ["Geser Hue", "Ganti ke warna pilihan"],
     )
+    if recolor_mode == "Geser Hue":
+        hue_delta = st.slider("Pergeseran Hue (+/-)", -90, 90, 20)
+    else:
+        new_hex = st.color_picker("Warna baru objek", "#FFE600")
+        new_rgb = hex_to_rgb(new_hex)
+        keep_shading = st.checkbox("Pertahankan gelap/terang objek", value=True)
+
+    st.divider()
+    st.header("4. (Opsional) Cloaking")
+    st.caption(
+        "Seperti di buku: ganti objek dengan gambar latar agar 'menghilang'. "
+        "Upload latar dengan komposisi mirip background gambar utama."
+    )
+    bg_uploaded = st.file_uploader(
+        "Gambar latar untuk cloaking", type=["jpg", "jpeg", "png", "webp", "bmp"],
+        key="bg",
+    )
+
+
+# ----------------------------------------------------------------------------
+# Proses utama
+# ----------------------------------------------------------------------------
+if uploaded is None:
+    st.info("⬅️ Mulai dengan mengupload gambar di sidebar.")
+    with st.expander("ℹ️ Tentang aplikasi ini & cara kerjanya"):
+        st.markdown(
+            """
+Aplikasi ini menerapkan resep **deteksi objek berdasarkan warna di ruang HSV**:
+
+1. **Konversi BGR/RGB → HSV.** HSV memisahkan *warna* (Hue) dari *kecerahan* (Value),
+   sehingga deteksi warna lebih stabil daripada di ruang RGB.
+2. **`cv2.inRange(hsv, lower, upper)`** membuat *mask* biner: piksel di dalam
+   rentang warna menjadi putih, sisanya hitam.
+3. **Slicing dengan mask** untuk mengambil hanya objek.
+4. **Ubah warna** cukup dengan menggeser channel **Hue** saja (tanpa menyentuh
+   Saturation/Value) lalu konversi balik ke RGB.
+5. **Transparansi/cloaking** dengan mengganti area objek (alpha=0 atau ditimpa latar).
+            """
+        )
     st.stop()
 
-# ── Pipeline (mengikuti main.main) ───────────────────────────────────────────
-hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
+rgb = load_image(uploaded)
+mask = make_mask(rgb, lower, upper)
+only_obj = slice_object(rgb, mask)
 
-if is_dark:
-    target_label = f"Siluet (V < {dark_thresh})"
-    mask = core.clean_mask(core.build_dark_mask(hsv, dark_thresh))
-    info = f"Mode siluet (gelap), ambang V < {dark_thresh} — " \
-           f"{int(cv2.countNonZero(mask)):,} px objek"
+if recolor_mode == "Geser Hue":
+    recolored = shift_hue(rgb, mask, hue_delta)
 else:
-    color_name, area = core.detect_color(hsv)
-    target_label = f"Warna {color_name}"
-    mask = core.clean_mask(core.build_mask(hsv, color_name))
-    info = f"Warna dominan terdeteksi: **{color_name}** — {area:,} px"
-    # Area sangat kecil -> kemungkinan objeknya siluet/gelap, bukan berwarna.
-    if area < 0.01 * img.shape[0] * img.shape[1]:
-        st.warning(
-            "Objek berwarna nyaris tak terdeteksi. Jika gambarmu berupa "
-            "**siluet/objek gelap** (mis. contoh `image.png`), ganti mode ke "
-            "**Siluet / objek gelap** di panel kiri."
-        )
+    recolored = replace_color(rgb, mask, new_rgb, keep_shading)
 
-imask = mask > 0
+transparent = make_transparent(rgb, mask)
 
-bg = None
-if bg_upload is not None:
-    bg = read_upload(bg_upload)
-    if bg.shape != img.shape:
-        bg = cv2.resize(bg, (img.shape[1], img.shape[0]))
+# Statistik kecil
+coverage = float((mask > 0).mean() * 100)
+st.metric("Area terdeteksi", f"{coverage:.1f}% dari gambar")
 
-sliced = core.slice_object(img, imask)
-removed = core.remove_object(img, imask, bg)
+# Tampilan hasil
+col1, col2, col3 = st.columns(3)
+with col1:
+    st.subheader("Original")
+    st.image(rgb, use_container_width=True)
+    download_button("⬇️ Unduh", rgb, "original.png")
+with col2:
+    st.subheader("Mask")
+    st.image(mask, use_container_width=True, clamp=True)
+    download_button("⬇️ Unduh", mask, "mask.png")
+with col3:
+    st.subheader("Objek Saja")
+    st.image(only_obj, use_container_width=True)
+    download_button("⬇️ Unduh", only_obj, "only_object.png")
 
-if is_dark:
-    recolored = core.fill_object(img, imask, hex_to_bgr(fill_hex))
-    recolor_title = "Recolor (isi warna solid)"
-else:
-    recolored = core.recolor_object(img, hsv, imask, hue_shift)
-    recolor_title = f"Recolor (+{hue_shift} Hue)"
+col4, col5, col6 = st.columns(3)
+with col4:
+    st.subheader("Warna Objek Diubah")
+    st.image(recolored, use_container_width=True)
+    download_button("⬇️ Unduh", recolored, "recolored.png")
+with col5:
+    st.subheader("Objek Transparan")
+    st.image(transparent, use_container_width=True)
+    download_button("⬇️ Unduh (PNG transparan)", transparent, "transparent.png")
+with col6:
+    st.subheader("Cloaking")
+    if bg_uploaded is not None:
+        bg = load_image(bg_uploaded)
+        cloaked = cloak_with_background(rgb, mask, bg)
+        st.image(cloaked, use_container_width=True)
+        download_button("⬇️ Unduh", cloaked, "cloaked.png")
+    else:
+        st.caption("Upload gambar latar di sidebar (bagian 4) untuk fitur ini.")
 
-mode_transp = "tukar latar" if bg is not None else "inpaint"
-
-# ── Tampilan hasil ───────────────────────────────────────────────────────────
-st.success(f"🎯 {info}")
-
-panels = [
-    ("Input", img),
-    (f"Mask — {target_label}", mask),
-    ("Objek diiris", sliced),
-    (recolor_title, recolored),
-    (f"Objek transparan ({mode_transp})", removed),
-]
-
-cols = st.columns(3)
-for i, (title, im) in enumerate(panels):
-    with cols[i % 3]:
-        st.image(to_rgb(im), caption=title, width="stretch")
-        st.download_button(
-            f"⬇️ Unduh: {title}",
-            data=png_bytes(im),
-            file_name=title.lower().replace(" ", "_").replace("/", "-")
-            .replace("—", "-") + ".png",
-            mime="image/png",
-            key=f"dl_{i}",
-        )
-
-with st.expander("ℹ️ Cara kerja singkat"):
+with st.expander("🔧 Tips kalau deteksi belum pas"):
     st.markdown(
         """
-1. **BGR → HSV** — citra dikonversi ke ruang warna HSV.
-2. **Deteksi objek** — mode *warna* memilih warna dominan via Hue
-   (`detect_color`); mode *siluet* menandai piksel ber-Value rendah
-   (`build_dark_mask`).
-3. **Masking + pembersihan** — `cv2.inRange` lalu morfologi *opening/closing*
-   (`clean_mask`).
-4. **Iris** objek dari latar (`slice_object`).
-5. **Recolor** — geser Hue (`recolor_object`) untuk objek berwarna, atau isi
-   warna solid (`fill_object`) untuk siluet.
-6. **Transparan** — tukar dengan latar bila diberikan, selain itu `cv2.inpaint`
-   (`remove_object`).
-
-> Seluruh logika di atas diambil langsung dari `main.py`.
+- **Objek tidak tertangkap penuh?** Perbesar toleransi *Saturation* & *Value*,
+  atau lebarkan rentang *Hue*.
+- **Terlalu banyak area ikut tertangkap?** Persempit toleransi, terutama *Hue*.
+- **Warna merah** berada di dua ujung lingkaran Hue (mendekati 0 dan 179). Untuk
+  merah, gunakan mode slider manual dan coba dua rentang, atau pilih warna merah
+  yang condong oranye/magenta lewat color picker.
+- Mode **Color Picker** menghitung rentang otomatis di sekitar warna pilihanmu —
+  paling mudah untuk eksplorasi cepat.
         """
     )
