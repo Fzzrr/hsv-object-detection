@@ -9,6 +9,10 @@ menggunakan OpenCV. Program **otomatis mendeteksi warna dominan** pada gambar
 3. **membuatnya transparan/hilang** — menukar area objek dengan citra latar
    bila tersedia, atau menghapusnya dengan *inpainting* bila tidak.
 
+Selain objek berwarna, program juga mendukung **objek gelap/siluet** (mode
+`dark`) yang dideteksi lewat kecerahan (Value) rendah. Project ini menyertakan
+contoh `image.png` berupa **siluet fotografer** di depan langit.
+
 > Mata Kuliah: Pengolahan Analisis Citra Digital (PACD)
 
 ---
@@ -34,13 +38,17 @@ venv\Scripts\activate        # Windows
 # 2. install dependensi
 pip install -r requirements.txt
 
-# 3. siapkan gambar, lalu jalankan
-python main.py --image images/foto.jpg
+# 3. jalankan pada contoh bawaan (image.png = siluet -> pakai mode dark)
+python main.py --image image.png --target dark --dark-thresh 35 --save
+
+#    atau pada gambar berwarna milikmu sendiri (mode color default)
+python main.py --image foto.jpg
 ```
 
-Program akan mencetak warna dominan yang terdeteksi, lalu menampilkan jendela
-**matplotlib** berisi 5 panel: input, mask, objek diiris, objek di-recolor,
-dan objek transparan.
+Program akan mencetak info objek terdeteksi (warna dominan, atau jumlah piksel
+siluet pada mode `dark`), lalu menampilkan jendela **matplotlib** berisi 5 panel:
+input, mask, objek diiris, objek di-recolor, dan objek transparan. Tambahkan
+`--save` untuk menyimpan tiap panel ke folder `out/`.
 
 ### Opsi argumen
 
@@ -71,25 +79,30 @@ python main.py --image images/foto.jpg
 # kasus ikan oranye + foto latar (persis cara recipe asli)
 python main.py --image images/fish.png --bg images/fish_bg.png
 
-# objek siluet/gelap (mis. fotografer membelakangi langit)
-python main.py --image silhouette.png --target dark
+# objek siluet/gelap (mis. fotografer membelakangi langit -> image.png)
+python main.py --image image.png --target dark --dark-thresh 35
 
 # siluet diisi warna merah, ambang lebih ketat, simpan hasil
-python main.py --image silhouette.png --target dark --fill 0,0,255 --dark-thresh 45 --save
+python main.py --image image.png --target dark --fill 0,0,255 --dark-thresh 35 --save
 ```
 
 ---
 
 ## 🖼️ Menyiapkan Gambar
 
-Buat folder `images/` dan letakkan gambar di dalamnya. Untuk efek transparan
-ala recipe (mode `--bg`), sediakan dua foto berukuran sama: satu dengan objek
-(`fish.png`) dan satu hanya latar tanpa objek (`fish_bg.png`).
+Project sudah menyertakan `image.png` (siluet fotografer) di folder root, jadi
+bisa langsung dijalankan. Untuk gambarmu sendiri, cukup arahkan `--image` ke
+berkasnya:
 
 ```
-images/
-├── fish.png      # gambar berisi objek
-└── fish_bg.png   # (opsional) latar tanpa objek, untuk --bg
+image.png         # contoh bawaan (siluet) -> jalankan dengan --target dark
+```
+
+Untuk efek transparan ala recipe asli (mode `--bg`), sediakan **dua foto
+berukuran sama**: satu dengan objek dan satu hanya latar tanpa objek, lalu:
+
+```bash
+python main.py --image objek.png --bg latar.png
 ```
 
 ---
@@ -113,12 +126,20 @@ Pipeline pada `main.py` (mengembangkan recipe HSV):
 Rentang warna diatur di `COLOR_RANGES` (dalam `main.py`): Merah, Oranye,
 Kuning, Hijau, Cyan, Biru, Ungu. Tambahkan entri baru di sana bila perlu.
 
+Pada **mode `dark`**, langkah 2 (deteksi warna) diganti dengan `build_dark_mask`
+yang menandai piksel ber-Value rendah (`V < --dark-thresh`), dan langkah 5
+(recolor) diganti `fill_object` yang menimpa objek dengan warna solid `--fill`
+(menggeser Hue tidak terlihat pada piksel hitam).
+
 ---
 
 ## 🛠️ Tips & Troubleshooting
 
 - **Warna terdeteksi salah** → objek dominan mungkin bukan yang kamu maksud;
   sesuaikan rentang di `COLOR_RANGES` atau crop gambar lebih dulu.
+- **Objek siluet/gelap tidak terdeteksi (mode `color`)** → siluet tidak punya
+  hue; gunakan `--target dark`. Atur `--dark-thresh` (naikkan bila bagian objek
+  terlewat, turunkan bila bintik latar ikut tertangkap).
 - **Mask kurang rapi** → ubah ukuran kernel/iterasi di `clean_mask`.
 - **Hasil transparan belang (mode `--bg`)** → pastikan `--bg` diambil dari
   sudut & ukuran yang sama, hanya beda ada/tidaknya objek.
