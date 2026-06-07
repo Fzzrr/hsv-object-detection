@@ -1,131 +1,125 @@
-# HSV Object Detection
+# HSV Object Manipulation
 
-Deteksi objek **real-time via webcam berdasarkan warna** menggunakan ruang warna
-HSV dengan OpenCV. Setiap objek yang cocok dengan warna target ditandai dengan
-**kotak (bounding box)**, titik tengah, dan label nama warna + luas area.
+Mendeteksi dan memanipulasi objek **berdasarkan warnanya di ruang warna HSV**
+menggunakan OpenCV. Program **otomatis mendeteksi warna dominan** pada gambar
+(bukan hanya ikan oranye seperti contoh recipe), lalu:
+
+1. **mengiris** (slice) objek dari latar,
+2. **mengubah warnanya** (menggeser channel Hue),
+3. **membuatnya transparan/hilang** — menukar area objek dengan citra latar
+   bila tersedia, atau menghapusnya dengan *inpainting* bila tidak.
 
 > Mata Kuliah: Pengolahan Analisis Citra Digital (PACD)
-
----
-
-## ✨ Fitur
-
-- Deteksi warna real-time dari webcam dalam ruang warna **HSV**.
-- 6 warna target siap pakai: Merah, Oranye, Kuning, Hijau, Biru, Ungu.
-- Penanda objek berupa **bounding box** dengan isi semi-transparan + titik tengah.
-- Pembersihan noise mask dengan **morfologi** (opening + closing).
-- Filter objek berdasarkan **luas minimum** untuk membuang noise kecil.
-- Tampilan HUD: warna aktif, status mask, jumlah objek, dan **FPS**.
-- Mode **side-by-side mask** untuk melihat hasil segmentasi.
-- Simpan **screenshot** kapan saja.
 
 ---
 
 ## 📦 Persyaratan
 
 - Python 3.8+
-- Webcam
 - Dependensi (lihat `requirements.txt`):
   - `opencv-python`
   - `numpy`
+  - `matplotlib`
 
 ---
 
-## 🚀 Instalasi & Menjalankan
+## 🚀 Cara Menjalankan
 
 ```bash
-# (opsional) buat virtual environment
+# 1. (opsional) buat & aktifkan virtual environment
 python -m venv venv
 venv\Scripts\activate        # Windows
 # source venv/bin/activate   # Linux / macOS
 
-# install dependensi
+# 2. install dependensi
 pip install -r requirements.txt
 
-# jalankan
-python main.py
+# 3. siapkan gambar, lalu jalankan
+python main.py --image images/foto.jpg
+```
+
+Program akan mencetak warna dominan yang terdeteksi, lalu menampilkan jendela
+**matplotlib** berisi 5 panel: input, mask, objek diiris, objek di-recolor,
+dan objek transparan.
+
+### Opsi argumen
+
+| Argumen         | Default        | Fungsi                                                       |
+| --------------- | -------------- | ------------------------------------------------------------ |
+| `--image`       | `image.png`    | berkas citra input                                           |
+| `--target`      | `color`        | `color` = deteksi warna dominan, `dark` = siluet/objek gelap |
+| `--dark-thresh` | `50`           | (mode dark) ambang Value; piksel `V<nilai` dianggap objek    |
+| `--fill`        | `255,130,0`    | (mode dark) warna isi `B,G,R` saat recolor (default biru)    |
+| `--bg`          | *(tidak ada)*  | citra latar untuk efek transparan ala recipe asli            |
+| `--hue-shift`   | `20`           | (mode color) besar pergeseran Hue saat me-recolor objek      |
+| `--save`        | *(off)*        | simpan tiap panel hasil ke folder `out/`                     |
+
+### Dua mode target
+
+- **`color`** (default) — untuk objek berwarna. Program memilih warna dominan,
+  lalu me-recolor dengan menggeser Hue. Cocok mis. kemeja merah, ikan oranye.
+- **`dark`** — untuk objek **gelap/siluet** yang tidak punya warna (mis. siluet
+  orang membelakangi cahaya). Dideteksi via Value rendah, dan di-recolor dengan
+  **mengisi warna solid** (geser Hue tidak terlihat pada piksel hitam).
+
+### Contoh
+
+```bash
+# deteksi warna dominan otomatis, transparan via inpaint
+python main.py --image images/foto.jpg
+
+# kasus ikan oranye + foto latar (persis cara recipe asli)
+python main.py --image images/fish.png --bg images/fish_bg.png
+
+# objek siluet/gelap (mis. fotografer membelakangi langit)
+python main.py --image silhouette.png --target dark
+
+# siluet diisi warna merah, ambang lebih ketat, simpan hasil
+python main.py --image silhouette.png --target dark --fill 0,0,255 --dark-thresh 45 --save
 ```
 
 ---
 
-## 🎮 Kontrol Keyboard
+## 🖼️ Menyiapkan Gambar
 
-| Tombol | Fungsi                                |
-| :----: | ------------------------------------- |
-| `1`–`6`| Ganti warna target                    |
-| `M`    | Tampilkan / sembunyikan mask          |
-| `S`    | Simpan screenshot frame saat ini      |
-| `Q`    | Keluar dari program                   |
-
----
-
-## 🗂️ Struktur Proyek
+Buat folder `images/` dan letakkan gambar di dalamnya. Untuk efek transparan
+ala recipe (mode `--bg`), sediakan dua foto berukuran sama: satu dengan objek
+(`fish.png`) dan satu hanya latar tanpa objek (`fish_bg.png`).
 
 ```
-hsv-object-detection/
-├── main.py            # Loop utama: ambil frame, proses, tampilkan
-├── utils.py           # Pemrosesan citra + fungsi menggambar/overlay
-├── hsv_config.py      # Definisi rentang warna HSV & palet bounding box
-├── requirements.txt   # Daftar dependensi
-└── README.md
+images/
+├── fish.png      # gambar berisi objek
+└── fish_bg.png   # (opsional) latar tanpa objek, untuk --bg
 ```
 
 ---
 
 ## ⚙️ Cara Kerja
 
-Pipeline pemrosesan tiap frame (`main.py`):
+Pipeline pada `main.py` (mengembangkan recipe HSV):
 
-1. **BGR → HSV** — konversi frame webcam ke ruang warna HSV.
-2. **Masking** (`build_mask`) — buat binary mask sesuai rentang warna target.
-   Warna **Merah** memakai 2 range karena melingkar di spektrum Hue.
-3. **Pembersihan** (`clean_mask`) — morfologi *opening* (buang noise) lalu
-   *closing* (tutup lubang) untuk merapikan mask.
-4. **Pencarian objek** (`find_objects`) — cari kontur, filter berdasarkan
-   `min_area`, dan hitung bounding box tiap objek.
-5. **Visualisasi** (`draw_detections`) — gambar kotak + titik tengah + label.
-6. **Overlay UI** — HUD, swatch warna, dan status bar.
+1. **BGR → HSV** — konversi citra input ke ruang warna HSV.
+2. **Deteksi warna dominan** (`detect_color`) — hitung luas mask untuk tiap
+   warna di `COLOR_RANGES`, pilih yang terbesar. Merah memakai 2 range karena
+   melingkar di spektrum Hue.
+3. **Masking** (`build_mask`) + **pembersihan** (`clean_mask`, morfologi
+   *opening* lalu *closing*) untuk merapikan mask.
+4. **Slice** (`slice_object`) — ambil piksel objek saja memakai mask.
+5. **Recolor** (`recolor_object`) — geser channel Hue (mod 180) lalu konversi
+   kembali ke BGR.
+6. **Transparan** (`remove_object`) — tukar latar bila `--bg` ada, selain itu
+   `cv2.inpaint` untuk menghapus objek.
 
----
-
-## 🎨 Menyesuaikan Warna
-
-Rentang warna diatur di `hsv_config.py`. Setiap entri pada `COLOR_RANGES`
-berisi:
-
-```python
-"NamaWarna": {
-    "lower": np.array([H, S, V]),   # batas bawah HSV
-    "upper": np.array([H, S, V]),   # batas atas HSV
-    "multi": False,                  # True jika butuh 2 range (mis. Merah)
-    "color_bgr": (B, G, R),          # warna kotak di layar
-}
-```
-
-Catatan rentang Hue di OpenCV (0–179):
-
-| Warna  | Hue            |
-| ------ | -------------- |
-| Merah  | 0–10 & 160–179 |
-| Oranye | 10–25          |
-| Kuning | 25–35          |
-| Hijau  | 35–85          |
-| Cyan   | 85–100         |
-| Biru   | 100–130        |
-| Ungu   | 130–160        |
-
-Untuk menambah warna baru, tambahkan entri pada `COLOR_RANGES`; tombol keyboard
-mengikuti urutan otomatis dari `COLOR_KEYS`.
+Rentang warna diatur di `COLOR_RANGES` (dalam `main.py`): Merah, Oranye,
+Kuning, Hijau, Cyan, Biru, Ungu. Tambahkan entri baru di sana bila perlu.
 
 ---
 
 ## 🛠️ Tips & Troubleshooting
 
-- **Kamera tidak terdeteksi** → ubah indeks `cv2.VideoCapture(0)` di `main.py`
-  (coba `1`, `2`, dst) bila punya lebih dari satu kamera.
-- **Objek tidak terdeteksi** → sesuaikan `lower`/`upper` HSV, atau turunkan
-  `min_area` pada `find_objects(mask_clean, min_area=1500)` di `main.py`.
-- **Banyak noise** → naikkan `min_area` atau perbesar kernel morfologi di
-  `clean_mask` (`utils.py`).
-- **Pencahayaan** sangat memengaruhi nilai S/V — uji di kondisi cahaya yang mirip
-  dengan pemakaian sebenarnya.
+- **Warna terdeteksi salah** → objek dominan mungkin bukan yang kamu maksud;
+  sesuaikan rentang di `COLOR_RANGES` atau crop gambar lebih dulu.
+- **Mask kurang rapi** → ubah ukuran kernel/iterasi di `clean_mask`.
+- **Hasil transparan belang (mode `--bg`)** → pastikan `--bg` diambil dari
+  sudut & ukuran yang sama, hanya beda ada/tidaknya objek.
+- **Pencahayaan** sangat memengaruhi nilai S/V; uji di kondisi cahaya serupa.
