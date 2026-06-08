@@ -31,12 +31,78 @@ st.set_page_config(
     page_title="Deteksi Objek Berdasarkan Warna (HSV)",
     page_icon="🎨",
     layout="wide",
+    initial_sidebar_state="expanded",
 )
 
-st.title("🎨 Deteksi Objek Berdasarkan Warna di Ruang HSV")
-st.caption(
-    "Upload gambar apa saja, pilih warna yang ingin dideteksi, lalu ekstrak, "
-    "ubah warnanya, atau buat objek menjadi transparan — semua di ruang warna HSV."
+# ----------------------------------------------------------------------------
+# Gaya kustom (CSS) — supaya tampilan lebih rapi & modern
+# ----------------------------------------------------------------------------
+st.markdown(
+    """
+    <style>
+      /* Lebarkan area konten sedikit & beri ruang napas */
+      .block-container { padding-top: 2.2rem; padding-bottom: 3rem; max-width: 1300px; }
+
+      /* Hero header */
+      .hero {
+        background: linear-gradient(135deg, #6C5CE7 0%, #8E7CF0 45%, #00B894 130%);
+        border-radius: 18px;
+        padding: 1.6rem 1.9rem;
+        margin-bottom: 1.4rem;
+        box-shadow: 0 10px 30px rgba(108,92,231,0.25);
+      }
+      .hero h1 {
+        color: #ffffff; font-size: 1.9rem; font-weight: 800;
+        margin: 0 0 .35rem 0; letter-spacing: -0.5px;
+      }
+      .hero p { color: rgba(255,255,255,0.92); font-size: 1.02rem; margin: 0; max-width: 760px; }
+
+      /* Kartu hasil gambar */
+      .result-card {
+        background: var(--secondary-background-color, #1A1E2A);
+        border: 1px solid rgba(255,255,255,0.07);
+        border-radius: 14px;
+        padding: 0.85rem 0.95rem 1rem;
+        height: 100%;
+        transition: transform .15s ease, border-color .15s ease;
+      }
+      .result-card:hover { transform: translateY(-3px); border-color: rgba(108,92,231,0.55); }
+      .result-card .card-title {
+        font-weight: 700; font-size: 0.98rem; margin-bottom: .55rem;
+        display: flex; align-items: center; gap: .45rem;
+      }
+      .result-card .card-sub { color: #9AA0AE; font-size: .8rem; margin-top: -.3rem; margin-bottom:.6rem; }
+
+      /* Gambar di dalam kartu */
+      .result-card img { border-radius: 10px; }
+      [data-testid="stImage"] img { border-radius: 10px; }
+
+      /* Tombol unduh penuh lebar */
+      .stDownloadButton button { width: 100%; border-radius: 9px; font-weight: 600; }
+
+      /* Sidebar headings lebih halus */
+      [data-testid="stSidebar"] h2 { font-size: 1.02rem; }
+
+      /* Badge metrik */
+      [data-testid="stMetric"] {
+        background: var(--secondary-background-color, #1A1E2A);
+        border: 1px solid rgba(255,255,255,0.07);
+        border-radius: 12px; padding: 0.8rem 1rem;
+      }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
+st.markdown(
+    """
+    <div class="hero">
+      <h1>🎨 Deteksi Objek Berdasarkan Warna di Ruang HSV</h1>
+      <p>Upload gambar apa saja, pilih warna yang ingin dideteksi, lalu ekstrak,
+      ubah warnanya, atau buat objek menjadi transparan — semua di ruang warna HSV.</p>
+    </div>
+    """,
+    unsafe_allow_html=True,
 )
 
 
@@ -151,7 +217,22 @@ def to_png_bytes(arr: np.ndarray) -> bytes:
 
 
 def download_button(label, arr, filename):
-    st.download_button(label, data=to_png_bytes(arr), file_name=filename, mime="image/png")
+    st.download_button(
+        label,
+        data=to_png_bytes(arr),
+        file_name=filename,
+        mime="image/png",
+        key=f"dl_{filename}",
+    )
+
+
+def result_card(title, subtitle, image, filename, *, clamp=False):
+    """Render satu kartu hasil: judul, subjudul, gambar, tombol unduh."""
+    with st.container(border=True):
+        st.markdown(f"**{title}**")
+        st.caption(subtitle)
+        st.image(image, use_container_width=True, clamp=clamp)
+        download_button("⬇️ Unduh PNG", image, filename)
 
 
 # ----------------------------------------------------------------------------
@@ -216,6 +297,10 @@ with st.sidebar:
 # Proses utama
 # ----------------------------------------------------------------------------
 if uploaded is None:
+    c1, c2, c3 = st.columns(3)
+    c1.markdown("#### 1️⃣ Upload\nPilih gambar di sidebar kiri.")
+    c2.markdown("#### 2️⃣ Pilih warna\nColor picker atau slider HSV.")
+    c3.markdown("#### 3️⃣ Lihat hasil\nMask, ekstraksi, recolor, transparan.")
     st.info("⬅️ Mulai dengan mengupload gambar di sidebar.")
     with st.expander("ℹ️ Tentang aplikasi ini & cara kerjanya"):
         st.markdown(
@@ -247,41 +332,42 @@ transparent = make_transparent(rgb, mask)
 
 # Statistik kecil
 coverage = float((mask > 0).mean() * 100)
-st.metric("Area terdeteksi", f"{coverage:.1f}% dari gambar")
+h, w = mask.shape
+px_detected = int((mask > 0).sum())
 
-# Tampilan hasil
+m1, m2, m3 = st.columns(3)
+m1.metric("Area terdeteksi", f"{coverage:.1f}%", help="Persentase piksel yang masuk rentang warna.")
+m2.metric("Piksel terdeteksi", f"{px_detected:,}")
+m3.metric("Ukuran gambar", f"{w} × {h}")
+
+st.markdown("### Hasil")
+
+# Tampilan hasil — kartu rapi
 col1, col2, col3 = st.columns(3)
 with col1:
-    st.subheader("Original")
-    st.image(rgb, use_container_width=True)
-    download_button("⬇️ Unduh", rgb, "original.png")
+    result_card("📷 Original", "Gambar masukan", rgb, "original.png")
 with col2:
-    st.subheader("Mask")
-    st.image(mask, use_container_width=True, clamp=True)
-    download_button("⬇️ Unduh", mask, "mask.png")
+    result_card("⬛ Mask", "Putih = dalam rentang warna", mask, "mask.png", clamp=True)
 with col3:
-    st.subheader("Objek Saja")
-    st.image(only_obj, use_container_width=True)
-    download_button("⬇️ Unduh", only_obj, "only_object.png")
+    result_card("✂️ Objek Saja", "Hasil slicing dengan mask", only_obj, "only_object.png")
 
 col4, col5, col6 = st.columns(3)
 with col4:
-    st.subheader("Warna Objek Diubah")
-    st.image(recolored, use_container_width=True)
-    download_button("⬇️ Unduh", recolored, "recolored.png")
+    result_card("🌈 Warna Objek Diubah", "Recolor pada area objek", recolored, "recolored.png")
 with col5:
-    st.subheader("Objek Transparan")
-    st.image(transparent, use_container_width=True)
-    download_button("⬇️ Unduh (PNG transparan)", transparent, "transparent.png")
+    result_card("👻 Objek Transparan", "PNG dengan alpha=0 di objek", transparent, "transparent.png")
 with col6:
-    st.subheader("Cloaking")
-    if bg_uploaded is not None:
-        bg = load_image(bg_uploaded)
-        cloaked = cloak_with_background(rgb, mask, bg)
-        st.image(cloaked, use_container_width=True)
-        download_button("⬇️ Unduh", cloaked, "cloaked.png")
-    else:
-        st.caption("Upload gambar latar di sidebar (bagian 4) untuk fitur ini.")
+    with st.container(border=True):
+        st.markdown("**🫥 Cloaking**")
+        if bg_uploaded is not None:
+            st.caption("Objek diganti dengan gambar latar")
+            bg = load_image(bg_uploaded)
+            cloaked = cloak_with_background(rgb, mask, bg)
+            st.image(cloaked, use_container_width=True)
+            download_button("⬇️ Unduh PNG", cloaked, "cloaked.png")
+        else:
+            st.caption("Fitur opsional")
+            st.info("Upload gambar latar di sidebar (bagian 4) untuk mengaktifkan.")
 
 with st.expander("🔧 Tips kalau deteksi belum pas"):
     st.markdown(
